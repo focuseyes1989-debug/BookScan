@@ -457,8 +457,88 @@ public final class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle("စာမျက်နှာ " + (index + 1))
                 .setView(image)
                 .setPositiveButton("ပြန်ရိုက်မယ်", (dialog, which) -> startScan(name))
-                .setNeutralButton("အနားဖြတ်မယ်", (dialog, which) -> editPageEdges(name))
+                .setNeutralButton("ပုံပြင်မယ်", (dialog, which) -> choosePageEdit(name))
                 .setNegativeButton("ပိတ်မယ်", null).show();
+    }
+
+    private void choosePageEdit(String name) {
+        new AlertDialog.Builder(this).setTitle("စာမျက်နှာ ပြင်မယ်")
+                .setItems(new String[] {"အနားဖြတ်မယ်", "ဇယားလိုင်း ဖြောင့်မယ်"}, (dialog, which) -> {
+                    if (which == 0) editPageEdges(name);
+                    else straightenPage(name);
+                })
+                .setNegativeButton("ပိတ်မယ်", null).show();
+    }
+
+    private void straightenPage(String name) {
+        if (busy || awaitingResult) return;
+        setBusy(true, "ဇယားလိုင်းများ ရှာနေသည်…");
+        worker.execute(() -> {
+            File candidate = null;
+            Bitmap source = null;
+            Bitmap straightened = null;
+            try {
+                source = loadBitmap(name, 4200);
+                if (source == null) throw new IOException("Missing scan");
+                straightened = TableStraightener.straighten(source);
+                if (straightened == null) {
+                    runOnUiThread(() -> {
+                        setBusy(false, null);
+                        if (!isFinishing() && !isDestroyed()) {
+                            new AlertDialog.Builder(this)
+                                    .setMessage("ဖြောင့်ရန် လုံလောက်တဲ့ ဇယားတန်းလိုင်း မတွေ့ပါ။")
+                                    .setPositiveButton("ပိတ်မယ်", null).show();
+                        }
+                    });
+                    return;
+                }
+                candidate = File.createTempFile("straightened-", ".jpg", getCacheDir());
+                try (OutputStream output = new FileOutputStream(candidate)) {
+                    if (!straightened.compress(Bitmap.CompressFormat.JPEG, 97, output)) {
+                        throw new IOException("Could not encode straightened scan");
+                    }
+                }
+                File result = candidate;
+                runOnUiThread(() -> previewStraightened(name, result));
+            } catch (IOException | RuntimeException error) {
+                if (candidate != null) candidate.delete();
+                runOnUiThread(() -> showError("ဇယားလိုင်း ဖြောင့်၍မရပါ။", error));
+            } finally {
+                if (source != null) source.recycle();
+                if (straightened != null) straightened.recycle();
+            }
+        });
+    }
+
+    private void previewStraightened(String original, File candidate) {
+        setBusy(false, null);
+        if (isFinishing() || isDestroyed()) {
+            candidate.delete();
+            return;
+        }
+        ImageView image = new ImageView(this);
+        image.setAdjustViewBounds(true);
+        image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        image.setMaxHeight(getResources().getDisplayMetrics().heightPixels * 2 / 3);
+        image.setImageBitmap(loadBitmap(candidate, 1400));
+        AlertDialog preview = new AlertDialog.Builder(this)
+                .setTitle("ဇယားဖြောင့်ပြီး အကြိုပုံ")
+                .setView(image)
+                .setNegativeButton("မသိမ်းပါ", null)
+                .setPositiveButton("သိမ်းမယ်", (dialog, which) -> {
+                    ArrayList<String> updated = new ArrayList<>(pages);
+                    int index = updated.indexOf(original);
+                    String name = UUID.randomUUID() + ".jpg";
+                    if (index < 0 || !candidate.renameTo(pageFile(name))) {
+                        showError("ပြင်ထားတဲ့ပုံ သိမ်း၍မရပါ။", new IOException("Could not replace scan"));
+                        return;
+                    }
+                    updated.set(index, name);
+                    if (storePages(updated)) pageFile(original).delete();
+                    else pageFile(name).delete();
+                }).create();
+        preview.setOnDismissListener(dialog -> candidate.delete());
+        preview.show();
     }
 
     private void editPageEdges(String name) {
@@ -539,7 +619,11 @@ public final class MainActivity extends Activity {
     }
 
     private Bitmap loadBitmap(String name, int limit) {
-        String path = pageFile(name).getAbsolutePath();
+        return loadBitmap(pageFile(name), limit);
+    }
+
+    private Bitmap loadBitmap(File file, int limit) {
+        String path = file.getAbsolutePath();
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inJustDecodeBounds = true;
         BitmapFactory.decodeFile(path, options);
