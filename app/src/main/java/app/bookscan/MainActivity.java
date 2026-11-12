@@ -62,6 +62,7 @@ public final class MainActivity extends Activity {
     private TextView count;
     private Button scanButton;
     private Button modeButton;
+    private Button updateButton;
     private Button saveButton;
     private boolean busy;
     private boolean awaitingResult;
@@ -82,7 +83,14 @@ public final class MainActivity extends Activity {
 
         TextView title = label("BookScan", 34, PAPER);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        root.addView(title);
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        updateButton = button("Update", SURFACE, MINT);
+        header.addView(updateButton, new LinearLayout.LayoutParams(dp(86), dp(48)));
+        updateButton.setContentDescription("BookScan update စစ်ရန်");
+        updateButton.setOnClickListener(view -> checkForUpdate());
+        root.addView(header);
         TextView subtitle = label("စာအုပ်စာမျက်နှာများကို PDF အဖြစ် သိမ်းပါ", 14, MUTED);
         root.addView(subtitle);
         subtitle.setPadding(0, dp(2), 0, dp(16));
@@ -143,6 +151,38 @@ public final class MainActivity extends Activity {
         } else {
             modeButton.setText("ရိုက်ကူးမှုပုံစံ ရွေးမယ်  ▾");
         }
+    }
+
+    private void checkForUpdate() {
+        setBusy(true, "Update စစ်နေသည်…");
+        worker.execute(() -> {
+            try {
+                BookScanUpdates.Release release = BookScanUpdates.findNewer(BuildConfig.VERSION_CODE);
+                runOnUiThread(() -> {
+                    setBusy(false, null);
+                    if (isFinishing() || isDestroyed()) return;
+                    if (release == null) {
+                        new AlertDialog.Builder(this)
+                                .setMessage("BookScan " + BuildConfig.VERSION_NAME + " အတွက် update အသစ် မရှိသေးပါ။")
+                                .setPositiveButton("ပိတ်မယ်", null).show();
+                        return;
+                    }
+                    new AlertDialog.Builder(this)
+                            .setTitle("BookScan " + release.tag + " ရပါပြီ")
+                            .setMessage("APK ကို ဒေါင်းလုဒ်လုပ်ပြီး ဖွင့်ပါ။ Android မှာ Update နှိပ်ပါ။")
+                            .setPositiveButton("ဒေါင်းလုဒ်", (dialog, which) -> {
+                                try {
+                                    startActivity(new Intent(Intent.ACTION_VIEW, release.apk));
+                                } catch (RuntimeException error) {
+                                    showError("ဒေါင်းလုဒ် လင့်ခ် ဖွင့်၍မရပါ။", error);
+                                }
+                            })
+                            .setNegativeButton("နောက်မှ", null).show();
+                });
+            } catch (Exception error) {
+                runOnUiThread(() -> showError("Update စစ်၍မရပါ။ အင်တာနက်ကို စစ်ပြီး ပြန်စမ်းပါ။", error));
+            }
+        });
     }
 
     private void selectMode(int mode, String replacement, boolean openCamera) {
@@ -538,6 +578,7 @@ public final class MainActivity extends Activity {
         busy = working;
         scanButton.setEnabled(!busy && !awaitingResult);
         modeButton.setEnabled(!busy && !awaitingResult);
+        updateButton.setEnabled(!busy && !awaitingResult);
         saveButton.setEnabled(!busy && !awaitingResult && !pages.isEmpty());
         scanButton.setAlpha(scanButton.isEnabled() ? 1f : 0.45f);
         saveButton.setAlpha(saveButton.isEnabled() ? 1f : 0.45f);

@@ -8,8 +8,23 @@ android {
         applicationId 'app.bookscan'
         minSdk 23
         targetSdk 34
-        versionCode 5
-        versionName '1.4'
+        versionCode 6
+        versionName '1.5'
+    }
+    buildFeatures {
+        buildConfig true
+    }
+    def updateKeystore = providers.environmentVariable('BOOKSCAN_KEYSTORE').orNull
+    if (updateKeystore != null) {
+        signingConfigs {
+            updates {
+                storeFile file(updateKeystore)
+                storePassword providers.environmentVariable('BOOKSCAN_STORE_PASSWORD').get()
+                keyAlias providers.environmentVariable('BOOKSCAN_KEY_ALIAS').get()
+                keyPassword providers.environmentVariable('BOOKSCAN_KEY_PASSWORD').get()
+            }
+        }
+        buildTypes.release.signingConfig = signingConfigs.updates
     }
 }
 dependencies {
